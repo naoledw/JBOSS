@@ -1,0 +1,46 @@
+---
+- name: Manage JBOSS EAP Domain Controller
+  hosts: jboss_servers  # This will match your AWX Inventory
+  become: yes  # Use sudo/root if required to manage services
+  vars:
+    jboss_home: "/u01/T24/JBOSS"  # Define your JBOSS_HOME here
+    domain_config: "domain-cbo.xml"
+    host_config: "host-master-cbo.xml"
+    log_file: "master.log"
+
+  tasks:
+    - name: Stop any existing JBOSS domain process (optional)
+      ansible.builtin.shell: |
+        pkill -f "domain.sh.*{{ domain_config }}.*{{ host_config }}" || true
+      changed_when: false
+      ignore_errors: true
+
+    - name: Remove old log file
+      ansible.builtin.file:
+        path: "{{ jboss_home }}/{{ log_file }}"
+        state: absent
+
+    - name: Start JBOSS EAP Domain Controller
+      ansible.builtin.shell: |
+        nohup {{ jboss_home }}/bin/domain.sh \
+          --domain-config={{ domain_config }} \
+          --host-config={{ host_config }} > {{ log_file }} 2>&1 &
+      args:
+        chdir: "{{ jboss_home }}"
+        creates: "{{ log_file }}"  # Idempotency check
+
+    - name: Wait a moment for log file to be created
+      ansible.builtin.wait_for:
+        path: "{{ jboss_home }}/{{ log_file }}"
+        state: present
+        timeout: 10
+
+    - name: Display the last lines of the log (optional)
+      ansible.builtin.shell: |
+        tail -20 {{ log_file }}
+      register: log_output
+      changed_when: false
+
+    - name: Show log tail
+      ansible.builtin.debug:
+        msg: "{{ log_output.stdout_lines }}"
